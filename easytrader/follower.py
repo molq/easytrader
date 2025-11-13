@@ -75,7 +75,7 @@ class BaseFollower(metaclass=abc.ABCMeta):
     def check_login_success(self, rep):
         """检查登录状态是否成功
         :param rep: post login 接口返回的 response 对象
-        :raise 如果登录失败应该抛出 NotLoginError """
+        :raise 如果登录失败应该抛出 NotLoginError"""
         pass
 
     def create_login_params(self, user, password, **kwargs) -> dict:
@@ -179,12 +179,12 @@ class BaseFollower(metaclass=abc.ABCMeta):
         :param interval: 轮询策略的时间间隔，单位为秒"""
         while True:
             try:
-                transactions = self.query_strategy_transaction(
-                    strategy, **kwargs
-                )
+                transactions = self.query_strategy_transaction(strategy, **kwargs)
             # pylint: disable=broad-except
             except Exception as e:
-                logger.exception("无法获取策略 %s 调仓信息, 错误: %s, 跳过此次调仓查询", name, e)
+                logger.exception(
+                    "无法获取策略 %s 调仓信息, 错误: %s, 跳过此次调仓查询", name, e
+                )
                 time.sleep(3)
                 continue
             for transaction in transactions:
@@ -387,7 +387,7 @@ class BaseFollower(metaclass=abc.ABCMeta):
 
     @staticmethod
     def re_search(pattern, string, dtype=str):
-        return dtype(re.search(pattern,string).group(1))
+        return dtype(re.search(pattern, string).group(1))
 
     def project_transactions(self, transactions, **kwargs):
         """

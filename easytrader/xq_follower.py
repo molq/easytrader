@@ -34,7 +34,8 @@ class XueQiuFollower(BaseFollower):
         cookies = kwargs.get("cookies")
         if cookies is None:
             raise TypeError(
-                "雪球登陆需要设置 cookies， 具体见" "https://smalltool.github.io/2016/08/02/cookie/"
+                "雪球登陆需要设置 cookies， 具体见"
+                "https://smalltool.github.io/2016/08/02/cookie/"
             )
         headers = self._generate_headers()
         self.s.headers.update(headers)
@@ -110,7 +111,9 @@ class XueQiuFollower(BaseFollower):
                 strategy_id = self.extract_strategy_id(strategy_url)
                 strategy_name = self.extract_strategy_name(strategy_url)
             except:
-                logger.error("抽取交易id和策略名失败, 无效模拟交易url: %s", strategy_url)
+                logger.error(
+                    "抽取交易id和策略名失败, 无效模拟交易url: %s", strategy_url
+                )
                 raise
             strategy_worker = Thread(
                 target=self.track_strategy_worker,
@@ -128,7 +131,9 @@ class XueQiuFollower(BaseFollower):
         if not isinstance(total_assets, Number):
             raise TypeError("input assets type must be number(int, float)")
         if total_assets < 1e3:
-            raise ValueError("雪球总资产不能小于1000元，当前预设值 {}".format(total_assets))
+            raise ValueError(
+                "雪球总资产不能小于1000元，当前预设值 {}".format(total_assets)
+            )
         return total_assets
 
     @staticmethod
@@ -143,6 +148,7 @@ class XueQiuFollower(BaseFollower):
         return rep.json()[info_index]["name"]
 
     def extract_transactions(self, history):
+        logger.info("解析雪球组合交易历史: %s", history)
         if history["count"] <= 0:
             return []
         rebalancing_index = 0
@@ -150,7 +156,9 @@ class XueQiuFollower(BaseFollower):
         transactions = []
         for transaction in raw_transactions:
             if transaction["price"] is None:
-                logger.info("该笔交易无法获取价格，疑似未成交，跳过。交易详情: %s", transaction)
+                logger.info(
+                    "该笔交易无法获取价格，疑似未成交，跳过。交易详情: %s", transaction
+                )
                 continue
             transactions.append(transaction)
 
@@ -209,7 +217,11 @@ class XueQiuFollower(BaseFollower):
         try:
             stock = next(s for s in position if s["证券代码"] == stock_code)
         except StopIteration:
-            logger.info("根据持仓调整 %s 卖出额，发现未持有股票 %s, 不做任何调整", stock_code, stock_code)
+            logger.info(
+                "根据持仓调整 %s 卖出额，发现未持有股票 %s, 不做任何调整",
+                stock_code,
+                stock_code,
+            )
             return amount
 
         available_amount = stock["可用余额"]
