@@ -10,7 +10,7 @@ import requests
 import requests.exceptions
 
 from easytrader import exceptions
-from easytrader.log import logger
+from easytrader.log import logger, trade_logger
 from easytrader.utils.misc import file2dict, str2num
 from easytrader.utils.stock import get_30_date
 
@@ -35,6 +35,7 @@ class WebTrader(metaclass=abc.ABCMeta):
             self.account_config = file2dict(path)
         except ValueError:
             logger.error("配置文件格式有误，请勿使用记事本编辑，推荐 sublime text")
+            trade_logger.error("配置文件格式错误: %s", path)
         for value in self.account_config:
             if isinstance(value, int):
                 logger.warning("配置文件的值最好使用双引号包裹，使用字符串，否则可能导致不可知问题")
@@ -67,9 +68,10 @@ class WebTrader(metaclass=abc.ABCMeta):
             if self.login():
                 break
         else:
-            raise exceptions.NotLoginError(
-                "登录失败次数过多, 请检查密码是否正确 / 券商服务器是否处于维护中 / 网络连接是否正常"
-            )
+            msg = "登录失败次数过多, 请检查密码是否正确 / 券商服务器是否处于维护中 / 网络连接是否正常"
+            trade_logger.error("自动登录失败: %s", msg)
+            raise exceptions.NotLoginError(msg)
+        trade_logger.info("自动登录成功")
         self.keepalive()
 
     def login(self):
@@ -100,6 +102,7 @@ class WebTrader(metaclass=abc.ABCMeta):
         except requests.exceptions.RequestException as e:
             logger.setLevel(self.log_level)
             logger.error("心跳线程发现账户出现错误: %s %s, 尝试重新登陆", e.__class__, e)
+            trade_logger.warning("账户异常，尝试重新登录: %s", str(e))
             self.autologin()
         finally:
             logger.setLevel(self.log_level)

@@ -16,7 +16,7 @@ from pywinauto import findwindows, timings
 from easytrader import grid_strategies, pop_dialog_handler, refresh_strategies
 from easytrader.config import client
 from easytrader.grid_strategies import IGridStrategy
-from easytrader.log import logger
+from easytrader.log import logger, trade_logger
 from easytrader.refresh_strategies import IRefreshStrategy
 from easytrader.utils.misc import file2dict
 from easytrader.utils.perf import perf_clock
@@ -179,6 +179,8 @@ class ClientTrader(IClientTrader):
         self.refresh()
         self._switch_left_menus(["撤单[F3]"])
 
+        trade_logger.info("执行全部撤单操作")
+        
         # 点击全部撤销控件
         self._app.top_window().child_window(
             control_id=self._config.TRADE_CANCEL_ALL_ENTRUST_CONTROL_ID, class_name="Button", title_re="""全撤.*"""
@@ -197,30 +199,43 @@ class ClientTrader(IClientTrader):
 
         # 如果出现了确认窗口
         self.close_pop_dialog()
+        trade_logger.info("全部撤单操作完成")
 
     @perf_clock
     def repo(self, security, price, amount, **kwargs):
         self._switch_left_menus(["债券回购", "融资回购（正回购）"])
 
-        return self.trade(security, price, amount)
+        trade_logger.info("正回购 - 证券:%s 价格:%.3f 数量:%d", security, price, amount)
+        result = self.trade(security, price, amount)
+        trade_logger.info("正回购结果 - 证券:%s 结果:%s", security, result)
+        return result
 
     @perf_clock
     def reverse_repo(self, security, price, amount, **kwargs):
         self._switch_left_menus(["债券回购", "融劵回购（逆回购）"])
 
-        return self.trade(security, price, amount)
+        trade_logger.info("逆回购 - 证券:%s 价格:%.3f 数量:%d", security, price, amount)
+        result = self.trade(security, price, amount)
+        trade_logger.info("逆回购结果 - 证券:%s 结果:%s", security, result)
+        return result
 
     @perf_clock
     def buy(self, security, price, amount, **kwargs):
         self._switch_left_menus(["买入[F1]"])
 
-        return self.trade(security, price, amount)
+        trade_logger.info("买入 - 证券:%s 价格:%.2f 数量:%d", security, price, amount)
+        result = self.trade(security, price, amount)
+        trade_logger.info("买入结果 - 证券:%s 结果:%s", security, result)
+        return result
 
     @perf_clock
     def sell(self, security, price, amount, **kwargs):
         self._switch_left_menus(["卖出[F2]"])
 
-        return self.trade(security, price, amount)
+        trade_logger.info("卖出 - 证券:%s 价格:%.2f 数量:%d", security, price, amount)
+        result = self.trade(security, price, amount)
+        trade_logger.info("卖出结果 - 证券:%s 结果:%s", security, result)
+        return result
 
     @perf_clock
     def market_buy(self, security, amount, ttype=None, limit_price=None, **kwargs):
@@ -237,7 +252,10 @@ class ClientTrader(IClientTrader):
         """
         self._switch_left_menus(["市价委托", "买入"])
 
-        return self.market_trade(security, amount, ttype, limit_price=limit_price)
+        trade_logger.info("市价买入 - 证券:%s 数量:%d 类型:%s", security, amount, ttype or "默认")
+        result = self.market_trade(security, amount, ttype, limit_price=limit_price)
+        trade_logger.info("市价买入结果 - 证券:%s 结果:%s", security, result)
+        return result
 
     @perf_clock
     def market_sell(self, security, amount, ttype=None, limit_price=None, **kwargs):
@@ -253,7 +271,10 @@ class ClientTrader(IClientTrader):
         """
         self._switch_left_menus(["市价委托", "卖出"])
 
-        return self.market_trade(security, amount, ttype, limit_price=limit_price)
+        trade_logger.info("市价卖出 - 证券:%s 数量:%d 类型:%s", security, amount, ttype or "默认")
+        result = self.market_trade(security, amount, ttype, limit_price=limit_price)
+        trade_logger.info("市价卖出结果 - 证券:%s 结果:%s", security, result)
+        return result
 
     def market_trade(self, security, amount, ttype=None, limit_price=None, **kwargs):
         """
@@ -326,14 +347,18 @@ class ClientTrader(IClientTrader):
         stock_list = self._get_grid_data(self._config.COMMON_GRID_CONTROL_ID)
 
         if len(stock_list) == 0:
+            trade_logger.info("新股申购 - 今日无新股")
             return {"message": "今日无新股"}
         invalid_list_idx = [
             i for i, v in enumerate(stock_list) if v[self.config.AUTO_IPO_NUMBER] <= 0
         ]
 
         if len(stock_list) == len(invalid_list_idx):
+            trade_logger.info("新股申购 - 没有可申购的新股")
             return {"message": "没有发现可以申购的新股"}
 
+        trade_logger.info("新股申购 - 共%d只新股，可申购%d只", len(stock_list), len(stock_list) - len(invalid_list_idx))
+        
         self._click(self._config.AUTO_IPO_SELECT_ALL_BUTTON_CONTROL_ID)
         self.wait(0.1)
 
@@ -344,7 +369,9 @@ class ClientTrader(IClientTrader):
         self._click(self._config.AUTO_IPO_BUTTON_CONTROL_ID)
         self.wait(0.1)
 
-        return self._handle_pop_dialogs()
+        result = self._handle_pop_dialogs()
+        trade_logger.info("新股申购结果: %s", result)
+        return result
 
     def _click_grid_by_row(self, row):
         x = self._config.COMMON_GRID_LEFT_MARGIN

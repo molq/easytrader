@@ -12,7 +12,7 @@ from typing import List
 import requests
 
 from easytrader import exceptions
-from easytrader.log import logger
+from easytrader.log import logger, follow_logger
 
 
 class BaseFollower(metaclass=abc.ABCMeta):
@@ -56,6 +56,7 @@ class BaseFollower(metaclass=abc.ABCMeta):
 
         self.check_login_success(rep)
         logger.info("登录成功")
+        follow_logger.info("跟单系统登录成功")
 
     def _generate_headers(self):
         headers = {
@@ -185,6 +186,9 @@ class BaseFollower(metaclass=abc.ABCMeta):
                 logger.exception(
                     "无法获取策略 %s 调仓信息, 错误: %s, 跳过此次调仓查询", name, e
                 )
+                follow_logger.error(
+                    "策略[%s] 获取调仓信息失败: %s", name, str(e)
+                )
                 time.sleep(3)
                 continue
             for transaction in transactions:
@@ -198,6 +202,14 @@ class BaseFollower(metaclass=abc.ABCMeta):
                     "datetime": transaction["datetime"],
                 }
                 if self.is_cmd_expired(trade_cmd):
+                    follow_logger.info(
+                        "策略[%s] 指令已处理过，跳过 - 股票:%s 动作:%s 数量:%s 价格:%s",
+                        name,
+                        trade_cmd["stock_code"],
+                        trade_cmd["action"],
+                        trade_cmd["amount"],
+                        trade_cmd["price"]
+                    )
                     continue
                 logger.info(
                     "策略 [%s] 发送指令到交易队列, 股票: %s 动作: %s 数量: %s 价格: %s 信号产生时间: %s",
@@ -207,6 +219,15 @@ class BaseFollower(metaclass=abc.ABCMeta):
                     trade_cmd["amount"],
                     trade_cmd["price"],
                     trade_cmd["datetime"],
+                )
+                follow_logger.info(
+                    "策略[%s] 新指令 - 股票:%s 动作:%s 数量:%s 价格:%s 时间:%s",
+                    name,
+                    trade_cmd["stock_code"],
+                    trade_cmd["action"],
+                    trade_cmd["amount"],
+                    trade_cmd["price"],
+                    trade_cmd["datetime"]
                 )
                 self.trade_queue.put(trade_cmd)
                 self.add_cmd_to_expired_cmds(trade_cmd)
@@ -274,6 +295,13 @@ class BaseFollower(metaclass=abc.ABCMeta):
                     now,
                     expire_seconds,
                 )
+                follow_logger.warning(
+                    "策略[%s] 指令超时被丢弃 - 股票:%s 动作:%s 超时:%.1f秒",
+                    trade_cmd["strategy_name"],
+                    trade_cmd["stock_code"],
+                    trade_cmd["action"],
+                    expire
+                )
                 break
 
             # check price
@@ -289,6 +317,12 @@ class BaseFollower(metaclass=abc.ABCMeta):
                     trade_cmd["datetime"],
                     now,
                 )
+                follow_logger.warning(
+                    "策略[%s] 指令价格无效被丢弃 - 股票:%s 价格:%s",
+                    trade_cmd["strategy_name"],
+                    trade_cmd["stock_code"],
+                    trade_cmd["price"]
+                )
                 break
 
             # check amount
@@ -302,6 +336,12 @@ class BaseFollower(metaclass=abc.ABCMeta):
                     trade_cmd["price"],
                     trade_cmd["datetime"],
                     now,
+                )
+                follow_logger.warning(
+                    "策略[%s] 指令数量无效被丢弃 - 股票:%s 数量:%s",
+                    trade_cmd["strategy_name"],
+                    trade_cmd["stock_code"],
+                    trade_cmd["amount"]
                 )
                 break
 
@@ -330,6 +370,15 @@ class BaseFollower(metaclass=abc.ABCMeta):
                     trade_cmd["datetime"],
                     err_msg,
                 )
+                follow_logger.error(
+                    "策略[%s] 指令执行失败 - 股票:%s 动作:%s 数量:%s 价格:%.2f 错误:%s",
+                    trade_cmd["strategy_name"],
+                    trade_cmd["stock_code"],
+                    trade_cmd["action"],
+                    trade_cmd["amount"],
+                    actual_price,
+                    err_msg
+                )
             else:
                 logger.info(
                     "策略 [%s] 指令(股票: %s 动作: %s 数量: %s 价格(考虑滑点): %s 指令产生时间: %s) 执行成功, 返回: %s",
@@ -340,6 +389,15 @@ class BaseFollower(metaclass=abc.ABCMeta):
                     actual_price,
                     trade_cmd["datetime"],
                     response,
+                )
+                follow_logger.info(
+                    "策略[%s] 指令执行成功 - 股票:%s 动作:%s 数量:%s 价格:%.2f 结果:%s",
+                    trade_cmd["strategy_name"],
+                    trade_cmd["stock_code"],
+                    trade_cmd["action"],
+                    trade_cmd["amount"],
+                    actual_price,
+                    response
                 )
 
     def trade_worker(

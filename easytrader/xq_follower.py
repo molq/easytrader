@@ -8,7 +8,7 @@ from numbers import Number
 from threading import Thread
 
 from easytrader.follower import BaseFollower
-from easytrader.log import logger
+from easytrader.log import logger, follow_logger
 from easytrader.utils.misc import parse_cookies_str
 
 
@@ -46,6 +46,7 @@ class XueQiuFollower(BaseFollower):
         self.s.cookies.update(cookie_dict)
 
         logger.info("登录成功")
+        follow_logger.info("雪球跟单系统登录成功")
 
     def follow(  # type: ignore
         self,
@@ -114,6 +115,7 @@ class XueQiuFollower(BaseFollower):
                 logger.error(
                     "抽取交易id和策略名失败, 无效模拟交易url: %s", strategy_url
                 )
+                follow_logger.error("无效的策略URL: %s", strategy_url)
                 raise
             strategy_worker = Thread(
                 target=self.track_strategy_worker,
@@ -122,6 +124,7 @@ class XueQiuFollower(BaseFollower):
             )
             strategy_worker.start()
             logger.info("开始跟踪策略: %s", strategy_name)
+            follow_logger.info("开始跟踪雪球策略: %s (ID:%s 资产:%.2f)", strategy_name, strategy_id, assets)
 
     def calculate_assets(self, strategy_url, total_assets=None, initial_assets=None):
         # 都设置时优先选择 total_assets
@@ -149,6 +152,7 @@ class XueQiuFollower(BaseFollower):
 
     def extract_transactions(self, history):
         logger.info("解析雪球组合交易历史: %s", history)
+        follow_logger.info("获取到雪球调仓记录，共 %d 条", history.get("count", 0))
         if history["count"] <= 0:
             return []
         rebalancing_index = 0
@@ -158,6 +162,10 @@ class XueQiuFollower(BaseFollower):
             if transaction["price"] is None:
                 logger.info(
                     "该笔交易无法获取价格，疑似未成交，跳过。交易详情: %s", transaction
+                )
+                follow_logger.warning(
+                    "跳过无价格的调仓记录: 股票:%s",
+                    transaction.get("stock_symbol", "未知")
                 )
                 continue
             transactions.append(transaction)
@@ -222,6 +230,11 @@ class XueQiuFollower(BaseFollower):
                 stock_code,
                 stock_code,
             )
+            follow_logger.warning(
+                "调整卖出数量时发现未持有股票: %s, 保持原数量:%d",
+                stock_code,
+                amount
+            )
             return amount
 
         available_amount = stock["可用余额"]
@@ -235,6 +248,13 @@ class XueQiuFollower(BaseFollower):
             available_amount,
             amount,
             adjust_amount,
+        )
+        follow_logger.info(
+            "调整卖出数量 - 股票:%s 原数量:%d 可用:%d 调整后:%d",
+            stock_code,
+            amount,
+            available_amount,
+            adjust_amount
         )
         return adjust_amount
 
