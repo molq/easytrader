@@ -23,6 +23,7 @@ class XueQiuFollower(BaseFollower):
         super().__init__()
         self._adjust_sell = None
         self._users = None
+        self._strategy_threads = []  # 保存策略跟踪线程
 
     def login(self, user=None, password=None, **kwargs):
         """
@@ -123,8 +124,18 @@ class XueQiuFollower(BaseFollower):
                 kwargs={"interval": track_interval, "assets": assets},
             )
             strategy_worker.start()
+            self._strategy_threads.append(strategy_worker)  # 保存线程引用
             logger.info("开始跟踪策略: %s", strategy_name)
             follow_logger.info("开始跟踪雪球策略: %s (ID:%s 资产:%.2f)", strategy_name, strategy_id, assets)
+        
+        # 阻塞等待所有策略线程，保持跟单系统运行
+        logger.info("跟单系统开始运行，等待策略线程...")
+        try:
+            for thread in self._strategy_threads:
+                thread.join()
+        except KeyboardInterrupt:
+            logger.info("收到中断信号，停止跟单")
+            follow_logger.info("用户中断跟单系统")
 
     def calculate_assets(self, strategy_url, total_assets=None, initial_assets=None):
         # 都设置时优先选择 total_assets
@@ -151,7 +162,7 @@ class XueQiuFollower(BaseFollower):
         return rep.json()[info_index]["name"]
 
     def extract_transactions(self, history):
-        logger.info("解析雪球组合交易历史: %s", history)
+        # logger.info("解析雪球组合交易历史: %s", history)
         follow_logger.info("获取到雪球调仓记录，共 %d 条", history.get("count", 0))
         if history["count"] <= 0:
             return []

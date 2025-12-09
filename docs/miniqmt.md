@@ -32,7 +32,10 @@ user = easytrader.use('miniqmt')
 user.connect(
     miniqmt_path=r"D:\国金证券QMT交易端\userdata_mini",  # QMT 客户端下的 miniqmt 安装路径
     stock_account="你的资金账号",  # 资金账号
-    trader_callback=None, # 默认使用 `easytrader.miniqmt.DefaultXtQuantTraderCallback`
+    trader_callback=None,  # 默认使用 `easytrader.miniqmt.DefaultXtQuantTraderCallback`
+    reconnect_enabled=True,  # 是否启用自动重连，默认 True
+    reconnect_interval=5,  # 重连间隔（秒），默认 5 秒
+    max_reconnect_attempts=0,  # 最大重连次数，0 表示无限重连，默认 0
 )
 ```
 
@@ -42,6 +45,72 @@ user.connect(
     - 注意：不建议安装在 C 盘。在 C 盘每次都需要用管理员权限运行客户端，才能正常连接
 - `stock_account`: 资金账号
 - `trader_callback`: 交易回调对象，默认使用 `easytrader.miniqmt.DefaultXtQuantTraderCallback`
+- `reconnect_enabled`: 是否启用自动重连功能，默认为 `True`
+- `reconnect_interval`: 重连间隔时间（秒），默认为 `5` 秒
+- `max_reconnect_attempts`: 最大重连次数，`0` 表示无限重连，默认为 `0`
+
+### 自动重连功能
+
+从最新版本开始，easytrader 为 miniqmt 添加了自动重连功能。当连接断开时，系统会自动尝试重新连接。
+
+**功能特点：**
+
+- 连接断开时自动触发重连
+- 可配置重连间隔和最大重连次数
+- 详细的日志输出，方便排查连接问题
+- 线程安全，不会阻塞主程序
+
+**使用示例：**
+
+```python
+# 启用自动重连（默认配置）
+user.connect(
+    miniqmt_path=r"D:\国金证券QMT交易端\userdata_mini",
+    stock_account="你的资金账号",
+)
+
+# 自定义重连配置
+user.connect(
+    miniqmt_path=r"D:\国金证券QMT交易端\userdata_mini",
+    stock_account="你的资金账号",
+    reconnect_enabled=True,  # 启用自动重连
+    reconnect_interval=10,  # 每10秒重连一次
+    max_reconnect_attempts=10,  # 最多重连10次
+)
+
+# 禁用自动重连
+user.connect(
+    miniqmt_path=r"D:\国金证券QMT交易端\userdata_mini",
+    stock_account="你的资金账号",
+    reconnect_enabled=False,  # 禁用自动重连
+)
+
+# 手动停止自动重连
+user.stop_reconnect()
+```
+
+**日志输出示例：**
+
+```
+INFO - 正在连接到 MiniQMT...
+INFO - MiniQMT 路径: D:\国金证券QMT交易端\userdata_mini
+INFO - 资金账号: 1234567890
+INFO - 自动重连: 启用
+INFO - 重连间隔: 5 秒
+INFO - 最大重连次数: 无限
+INFO - 创建 XtQuantTrader 实例，会话ID: 123456
+INFO - 正在尝试连接...
+INFO - ✓ 成功连接到 MiniQMT, 账号: 1234567890
+INFO - ✓ 已订阅账户: 1234567890
+
+# 当连接断开时
+WARNING - MiniQMT 连接已断开
+INFO - 准备触发自动重连...
+WARNING - 第 1 次重连尝试 (间隔 5 秒)...
+INFO - 正在连接到 MiniQMT...
+INFO - ✓ 成功连接到 MiniQMT, 账号: 1234567890
+INFO - 重连成功！
+```
 
 ## 交易相关
 

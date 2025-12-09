@@ -2,6 +2,8 @@ from xtquant.xttrader import XtQuantTrader, XtQuantTraderCallback
 from xtquant.xttype import StockAccount
 from xtquant import xtconstant
 import random
+import time
+import threading
 from easytrader.log import logger
 from easytrader.utils.perf import perf_clock
 from easytrader.utils.stock import get_stock_type
@@ -121,12 +123,23 @@ class DefaultXtQuantTraderCallback(XtQuantTraderCallback):
     XtQuantTrader回调类的默认实现
     """
 
+    def __init__(self, trader_instance=None):
+        """
+        初始化回调类
+        :param trader_instance: MiniqmtTrader 实例，用于触发重连
+        """
+        super().__init__()
+        self.trader_instance = trader_instance
+
     def on_disconnected(self):
         """
         连接状态回调
         :return:
         """
-        logger.info("连接断开")
+        logger.warning("MiniQMT 连接已断开")
+        if self.trader_instance:
+            logger.info("准备触发自动重连...")
+            self.trader_instance.trigger_reconnect()
 
     def on_account_status(self, status):
         """
@@ -202,6 +215,15 @@ class MiniqmtTrader:
     def __init__(self):
         self._account: StockAccount = None
         self._trader: XtQuantTrader = None
+        self._miniqmt_path: str = None
+        self._stock_account: str = None
+        self._trader_callback: XtQuantTraderCallback = None
+        self._reconnect_enabled: bool = True
+        self._reconnect_interval: int = 5  # 重连间隔（秒）
+        self._max_reconnect_attempts: int = 0  # 最大重连次数，0表示无限重连
+        self._reconnect_count: int = 0
+        self._is_reconnecting: bool = False
+        self._reconnect_lock = threading.Lock()
 
     def prepare(self, **json_data):
         """
@@ -213,7 +235,10 @@ class MiniqmtTrader:
         self,
         miniqmt_path: str = r"D:\国金证券QMT交易端\userdata_mini",
         stock_account: str = None,
-        trader_callback: XtQuantTraderCallback = DefaultXtQuantTraderCallback(),
+        trader_callback: XtQuantTraderCallback = None,
+        reconnect_enabled: bool = True,
+        reconnect_interval: int = 5,
+        max_reconnect_attempts: int = 0,
     ):
         """
         连接到 miniqmt 交易端
@@ -221,19 +246,153 @@ class MiniqmtTrader:
         :param miniqmt_path: miniqmt 安装路径，类似 r"D:\\国金证券QMT交易端\\userdata_mini"
             注意：不建议安装在C盘。安装在C盘的话，每次都需要用管理员权限运行策略，才能正常连接，否则有权限问题
         :param stock_account: 资金账号
-        :param trader_callback: 交易回调对象，默认使用 DefaultXtQuantTraderCallback
+        :param trader_callback: 交易回调对象，默认使用 DefaultXtQuantTraderCallback，如果为 None 则自动创建
+        :param reconnect_enabled: 是否启用自动重连功能，默认 True
+        :param reconnect_interval: 重连间隔（秒），默认 5 秒
+        :param max_reconnect_attempts: 最大重连次数，0 表示无限重连，默认 0
         :return: None
         """
-        session_id = int(random.randint(100000, 999999))
-        self._trader = XtQuantTrader(miniqmt_path, session_id, callback=trader_callback)
-        self._trader.start()
+        # 保存连接参数以便重连
+        self._miniqmt_path = miniqmt_path
+        self._stock_account = stock_account
+        self._reconnect_enabled = reconnect_enabled
+        self._reconnect_interval = reconnect_interval
+        self._max_reconnect_attempts = max_reconnect_attempts
+        
+        # 如果没有提供回调对象，使用默认回调并传入 trader 实例
+        if trader_callback is None:
+            trader_callback = DefaultXtQuantTraderCallback(trader_instance=self)
+        self._trader_callback = trader_callback
+        
+        logger.info(f"正在连接到 MiniQMT...")
+        logger.info(f"MiniQMT 路径: {miniqmt_path}")
+        logger.info(f"资金账号: {stock_account}")
+        logger.info(f"自动重连: {'启用' if reconnect_enabled else '禁用'}")
+        if reconnect_enabled:
+            logger.info(f"重连间隔: {reconnect_interval} 秒")
+            logger.info(f"最大重连次数: {'无限' if max_reconnect_attempts == 0 else max_reconnect_attempts}")
+        
+        self._do_connect()
 
-        if self._trader.connect() == 0:
-            logger.info(f'成功连接到 miniqmt, 账号 {stock_account}')
-            self._account = StockAccount(stock_account)
-            self._trader.subscribe(self._account)
+    def _do_connect(self):
+        """
+        执行实际的连接操作
+        """
+        try:
+            session_id = int(random.randint(100000, 999999))
+            logger.info(f"创建 XtQuantTrader 实例，会话ID: {session_id}")
+            
+            self._trader = XtQuantTrader(self._miniqmt_path, session_id, callback=self._trader_callback)
+            self._trader.start()
+            
+            logger.info("正在尝试连接...")
+            connect_result = self._trader.connect()
+            
+            if connect_result == 0:
+                logger.info(f'✓ 成功连接到 MiniQMT, 账号: {self._stock_account}')
+                self._account = StockAccount(self._stock_account)
+                self._trader.subscribe(self._account)
+                logger.info(f"✓ 已订阅账户: {self._stock_account}")
+                self._reconnect_count = 0  # 重置重连计数
+                self._is_reconnecting = False
+            else:
+                logger.error(f'✗ 连接失败，返回码: {connect_result}')
+                logger.error('请检查以下几点：')
+                logger.error('1. MiniQMT 路径是否正确')
+                logger.error('2. QMT 客户端是否已登录并勾选极简模式/独立交易模式')
+                logger.error('3. 是否有足够的权限访问该路径')
+                
+                # 连接失败也触发重连
+                if self._reconnect_enabled:
+                    self.trigger_reconnect()
+                    
+        except Exception as e:
+            logger.error(f"连接过程中发生异常: {str(e)}", exc_info=True)
+            if self._reconnect_enabled:
+                self.trigger_reconnect()
+
+    def trigger_reconnect(self):
+        """
+        触发重连
+        """
+        if not self._reconnect_enabled:
+            logger.info("自动重连功能已禁用，不进行重连")
+            return
+            
+        with self._reconnect_lock:
+            if self._is_reconnecting:
+                logger.debug("重连已在进行中，跳过本次触发")
+                return
+                
+            self._is_reconnecting = True
+        
+        # 在新线程中执行重连，避免阻塞回调线程
+        reconnect_thread = threading.Thread(target=self._reconnect_loop, daemon=True)
+        reconnect_thread.start()
+
+    def _reconnect_loop(self):
+        """
+        重连循环
+        """
+        while self._reconnect_enabled:
+            self._reconnect_count += 1
+            
+            # 检查是否达到最大重连次数
+            if self._max_reconnect_attempts > 0 and self._reconnect_count > self._max_reconnect_attempts:
+                logger.error(f"已达到最大重连次数 ({self._max_reconnect_attempts})，停止重连")
+                self._is_reconnecting = False
+                break
+            
+            logger.warning(f"第 {self._reconnect_count} 次重连尝试 (间隔 {self._reconnect_interval} 秒)...")
+            time.sleep(self._reconnect_interval)
+            
+            try:
+                self._do_connect()
+                # 如果连接成功，_do_connect 会设置 _is_reconnecting = False
+                if not self._is_reconnecting:
+                    logger.info("重连成功！")
+                    break
+            except Exception as e:
+                logger.error(f"重连尝试失败: {str(e)}", exc_info=True)
+                continue
+
+    def stop_reconnect(self):
+        """
+        停止自动重连
+        """
+        logger.info("停止自动重连...")
+        self._reconnect_enabled = False
+        self._is_reconnecting = False
+
+    def _check_connected(self, wait_timeout: int = 300):
+        """
+        检查是否已连接，如果正在重连中则等待连接成功
+        :param wait_timeout: 等待超时时间（秒），默认 300 秒（5分钟）
+        :raises RuntimeError: 如果超时仍未连接成功则抛出异常
+        """
+        if self._trader is not None and self._account is not None:
+            return  # 已连接，直接返回
+        
+        # 如果正在重连，等待连接成功
+        if self._is_reconnecting:
+            logger.info(f"检测到正在重连中，等待连接成功（最长等待 {wait_timeout} 秒）...")
+            wait_start = time.time()
+            while self._is_reconnecting and (time.time() - wait_start) < wait_timeout:
+                time.sleep(0.5)  # 每0.5秒检查一次
+                if self._trader is not None and self._account is not None:
+                    logger.info("连接已成功，继续执行操作")
+                    return
+            
+            # 超时检查
+            if self._trader is None or self._account is None:
+                error_msg = f"等待连接超时（{wait_timeout}秒），仍未成功连接到 MiniQMT"
+                logger.error(error_msg)
+                raise RuntimeError(error_msg)
         else:
-            logger.error('连接失败，请检查路径或其他情况')
+            # 没有在重连，直接报错
+            error_msg = "尚未连接到 MiniQMT 或连接失败，请先成功连接后再进行操作"
+            logger.error(error_msg)
+            raise RuntimeError(error_msg)
 
     @property
     def trader(self) -> XtQuantTrader:
@@ -266,6 +425,7 @@ class MiniqmtTrader:
             - account_type: 账户类型
             - account_id: 账户ID
         """
+        self._check_connected()
         asset = self._trader.query_stock_asset(self._account)
         return [
             {
@@ -300,6 +460,7 @@ class MiniqmtTrader:
             - account_type: 账号类型
             - account_id: 资金账号
         """
+        self._check_connected()
         xt_positions = self._trader.query_stock_positions(self._account)
         positions = []
         for pos in xt_positions:
@@ -355,6 +516,7 @@ class MiniqmtTrader:
             - account_type: 账号类型
             - account_id: 资金账号
         """
+        self._check_connected()
         xt_orders = self._trader.query_stock_orders(self._account, False)
         if xt_orders is None:
             return []
@@ -417,6 +579,7 @@ class MiniqmtTrader:
             - strategy_name: 策略名称
             - order_remark: 委托备注
         """
+        self._check_connected()
         xt_trades = self._trader.query_stock_trades(self._account)
         if xt_trades is None:
             return []
@@ -496,6 +659,7 @@ class MiniqmtTrader:
             例如非交易时间下单可以拿到订单编号，但 on_order_error 回调会报错：
             下单失败回调: order_id=10231, error_id=-61, error_msg=限价买入 [SZ162411] [COUNTER] [12313][当前时间不允许此类证券交易]
         """
+        self._check_connected()
         action = "买入" if is_buy else "卖出"
         logger.info(f"限价{action}请求: 股票代码={security}, 价格={price}, 数量={amount}")
         
@@ -598,6 +762,7 @@ class MiniqmtTrader:
             例如非交易时间下单可以拿到订单编号，但 on_order_error 回调会报错：
             下单失败回调: order_id=10231, error_id=-61, error_msg=限价买入 [SZ162411] [COUNTER] [12313][当前时间不允许此类证券交易]
         """
+        self._check_connected()
         if ttype is None:
             ttype = '对手方最优价格委托'
 
@@ -637,6 +802,7 @@ class MiniqmtTrader:
         :return: {'success': True/False, 'message': '撤单结果'}
                  True: 成功发出撤单指令，False: 撤单失败
         """
+        self._check_connected()
         result = self._trader.cancel_order_stock(self._account, entrust_no)
         # 根据官方文档，0表示成功，-1表示失败
         if result == 0:
