@@ -53,7 +53,7 @@ class XueQiuFollower(BaseFollower):
         self,
         users,
         strategies,
-        total_assets=10000,
+        total_assets=None,
         initial_assets=None,
         adjust_sell=False,
         track_interval=10,
@@ -138,16 +138,25 @@ class XueQiuFollower(BaseFollower):
             follow_logger.info("用户中断跟单系统")
 
     def calculate_assets(self, strategy_url, total_assets=None, initial_assets=None):
-        # 都设置时优先选择 total_assets
-        if total_assets is None and initial_assets is not None:
-            net_value = self._get_portfolio_net_value(strategy_url)
-            total_assets = initial_assets * net_value
+        # 优先使用 total_assets，否则使用 initial_assets
+        # 跟单程序直接使用配置的资金，不考虑组合净值
+        if total_assets is None:
+            if initial_assets is not None:
+                total_assets = initial_assets
+                logger.info("使用配置的初始资产作为跟单资金: %.2f 元", total_assets)
+            else:
+                raise ValueError("必须指定 total_assets 或 initial_assets 参数")
+        else:
+            logger.info("使用配置的总资产作为跟单资金: %.2f 元", total_assets)
+        
         if not isinstance(total_assets, Number):
             raise TypeError("input assets type must be number(int, float)")
         if total_assets < 1e3:
             raise ValueError(
                 "雪球总资产不能小于1000元，当前预设值 {}".format(total_assets)
             )
+        
+        follow_logger.info("策略资金配置: %.2f 元", total_assets)
         return total_assets
 
     @staticmethod
@@ -210,7 +219,8 @@ class XueQiuFollower(BaseFollower):
 
             transaction["action"] = "buy" if weight_diff > 0 else "sell"
 
-            transaction["amount"] = int(round(initial_amount, -2))
+            # 向下取整到100的倍数，避免超出配置资金
+            transaction["amount"] = int(initial_amount // 100 * 100)
             if transaction["action"] == "sell" and self._adjust_sell:
                 transaction["amount"] = self._adjust_sell_amount(
                     transaction["stock_code"], transaction["amount"]
