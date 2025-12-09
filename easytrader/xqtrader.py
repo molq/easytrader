@@ -286,6 +286,8 @@ class XueQiuTrader(webtrader.WebTrader):
         :param entrust_no:
         :return:
         """
+        logger.info("撤单 - 委托单号:%s", entrust_no)
+        
         xq_entrust_list = self._get_xq_history()
         is_have = False
         for xq_entrusts in xq_entrust_list:
@@ -302,7 +304,10 @@ class XueQiuTrader(webtrader.WebTrader):
                         entrust["target_weight"] == 0
                         and entrust["weight"] == 0
                     ):
-                        raise exceptions.TradeError(u"移除的股票操作无法撤销,建议重新买入")
+                        error_msg = u"移除的股票操作无法撤销,建议重新买入"
+                        if self._notifier:
+                            self._notifier.notify_cancel(str(entrust_no), error_msg)
+                        raise exceptions.TradeError(error_msg)
                     balance = self.get_balance()[0]
                     volume = (
                         abs(entrust["target_weight"] - entrust["weight"])
@@ -315,11 +320,20 @@ class XueQiuTrader(webtrader.WebTrader):
                         entrust_bs=buy_or_sell,
                     )
                     if len(r) > 0 and "error_info" in r[0]:
-                        raise exceptions.TradeError(
-                            u"撤销失败!%s" % ("error_info" in r[0])
-                        )
+                        error_msg = u"撤销失败!%s" % ("error_info" in r[0])
+                        if self._notifier:
+                            self._notifier.notify_cancel(str(entrust_no), error_msg)
+                        raise exceptions.TradeError(error_msg)
+                    
+                    # 撤单成功通知
+                    if self._notifier:
+                        self._notifier.notify_cancel(str(entrust_no), "成功")
+                        
         if not is_have:
-            raise exceptions.TradeError(u"撤销对象已失效")
+            error_msg = u"撤销对象已失效"
+            if self._notifier:
+                self._notifier.notify_cancel(str(entrust_no), error_msg)
+            raise exceptions.TradeError(error_msg)
         return True
 
     def adjust_weight(self, stock_code, weight, fetch_position=True):
@@ -543,7 +557,23 @@ class XueQiuTrader(webtrader.WebTrader):
         :param volume: 买入总金额 由 volume / price 取整， 若指定 price 则此参数无效
         :param entrust_prop:
         """
-        return self._trade(security, price, amount, volume, "buy")
+        logger.info("买入 - 证券:%s 价格:%.2f 数量:%d", security, price, amount)
+        
+        # 发送委托通知
+        if self._notifier:
+            self._notifier.notify_trade("买入", security, price, amount)
+        
+        result = self._trade(security, price, amount, volume, "buy")
+        
+        # 发送委托结果通知
+        if self._notifier and result:
+            if result and len(result) > 0:
+                if 'error_info' in result[0]:
+                    self._notifier.notify_entrust_failed("买入", security, price, amount, result[0]['error_info'])
+                elif 'entrust_no' in result[0]:
+                    self._notifier.notify_entrust_success("买入", security, price, amount, result[0]['entrust_no'])
+        
+        return result
 
     def sell(self, security, price=0, amount=0, volume=0, entrust_prop=0):
         """卖出股票
@@ -553,7 +583,23 @@ class XueQiuTrader(webtrader.WebTrader):
         :param volume: 卖出总金额 由 volume / price 取整， 若指定 price 则此参数无效
         :param entrust_prop:
         """
-        return self._trade(security, price, amount, volume, "sell")
+        logger.info("卖出 - 证券:%s 价格:%.2f 数量:%d", security, price, amount)
+        
+        # 发送委托通知
+        if self._notifier:
+            self._notifier.notify_trade("卖出", security, price, amount)
+        
+        result = self._trade(security, price, amount, volume, "sell")
+        
+        # 发送委托结果通知
+        if self._notifier and result:
+            if result and len(result) > 0:
+                if 'error_info' in result[0]:
+                    self._notifier.notify_entrust_failed("卖出", security, price, amount, result[0]['error_info'])
+                elif 'entrust_no' in result[0]:
+                    self._notifier.notify_entrust_success("卖出", security, price, amount, result[0]['entrust_no'])
+        
+        return result
 
 
     def adjust_weights(self, weights, ignore_minor=0.0, fetch_position=True):

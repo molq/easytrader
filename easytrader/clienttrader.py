@@ -20,6 +20,7 @@ from easytrader.log import logger, trade_logger
 from easytrader.refresh_strategies import IRefreshStrategy
 from easytrader.utils.misc import file2dict
 from easytrader.utils.perf import perf_clock
+from easytrader.notifier import get_notifier
 
 if not sys.platform.startswith("darwin"):
     import pywinauto
@@ -88,6 +89,7 @@ class ClientTrader(IClientTrader):
         self._app = None
         self._main = None
         self._toolbar = None
+        self._notifier = get_notifier()
 
     @property
     def app(self):
@@ -172,14 +174,30 @@ class ClientTrader(IClientTrader):
         for i, entrust in enumerate(self.cancel_entrusts):
             if entrust[self._config.CANCEL_ENTRUST_ENTRUST_FIELD] == entrust_no:
                 self._cancel_entrust_by_double_click(i)
-                return self._handle_pop_dialogs()
-        return {"message": "委托单状态错误不能撤单, 该委托单可能已经成交或者已撤"}
+                result = self._handle_pop_dialogs()
+                
+                # 发送撤单通知
+                if self._notifier:
+                    result_str = "成功" if result.get('message') == 'success' else str(result)
+                    self._notifier.notify_cancel(entrust_no, result_str)
+                
+                return result
+        
+        error_msg = "委托单状态错误不能撤单, 该委托单可能已经成交或者已撤"
+        if self._notifier:
+            self._notifier.notify_cancel(entrust_no, error_msg)
+        
+        return {"message": error_msg}
 
     def cancel_all_entrusts(self):
         self.refresh()
         self._switch_left_menus(["撤单[F3]"])
 
         trade_logger.info("执行全部撤单操作")
+        
+        # 发送撤单通知
+        if self._notifier:
+            self._notifier.notify_cancel_all("执行中...")
         
         # 点击全部撤销控件
         self._app.top_window().child_window(
@@ -200,14 +218,33 @@ class ClientTrader(IClientTrader):
         # 如果出现了确认窗口
         self.close_pop_dialog()
         trade_logger.info("全部撤单操作完成")
+        
+        # 发送完成通知
+        if self._notifier:
+            self._notifier.notify_cancel_all("成功")
 
     @perf_clock
     def repo(self, security, price, amount, **kwargs):
         self._switch_left_menus(["债券回购", "融资回购（正回购）"])
 
         trade_logger.info("正回购 - 证券:%s 价格:%.3f 数量:%d", security, price, amount)
+        
+        # 发送委托通知
+        if self._notifier:
+            self._notifier.notify_trade("正回购", security, price, amount)
+        
         result = self.trade(security, price, amount)
         trade_logger.info("正回购结果 - 证券:%s 结果:%s", security, result)
+        
+        # 发送委托结果通知
+        if self._notifier:
+            if result.get('message') == 'success' or result.get('entrust_no'):
+                self._notifier.notify_entrust_success("正回购", security, price, amount,
+                                                     result.get('entrust_no'))
+            elif 'error' in str(result).lower() or 'message' in result:
+                self._notifier.notify_entrust_failed("正回购", security, price, amount,
+                                                    str(result.get('message', result)))
+        
         return result
 
     @perf_clock
@@ -215,8 +252,23 @@ class ClientTrader(IClientTrader):
         self._switch_left_menus(["债券回购", "融劵回购（逆回购）"])
 
         trade_logger.info("逆回购 - 证券:%s 价格:%.3f 数量:%d", security, price, amount)
+        
+        # 发送委托通知
+        if self._notifier:
+            self._notifier.notify_trade("逆回购", security, price, amount)
+        
         result = self.trade(security, price, amount)
         trade_logger.info("逆回购结果 - 证券:%s 结果:%s", security, result)
+        
+        # 发送委托结果通知
+        if self._notifier:
+            if result.get('message') == 'success' or result.get('entrust_no'):
+                self._notifier.notify_entrust_success("逆回购", security, price, amount,
+                                                     result.get('entrust_no'))
+            elif 'error' in str(result).lower() or 'message' in result:
+                self._notifier.notify_entrust_failed("逆回购", security, price, amount,
+                                                    str(result.get('message', result)))
+        
         return result
 
     @perf_clock
@@ -224,8 +276,23 @@ class ClientTrader(IClientTrader):
         self._switch_left_menus(["买入[F1]"])
 
         trade_logger.info("买入 - 证券:%s 价格:%.2f 数量:%d", security, price, amount)
+        
+        # 发送委托通知
+        if self._notifier:
+            self._notifier.notify_trade("买入", security, price, amount)
+        
         result = self.trade(security, price, amount)
         trade_logger.info("买入结果 - 证券:%s 结果:%s", security, result)
+        
+        # 发送委托结果通知
+        if self._notifier:
+            if result.get('message') == 'success' or result.get('entrust_no'):
+                self._notifier.notify_entrust_success("买入", security, price, amount,
+                                                     result.get('entrust_no'))
+            elif 'error' in str(result).lower() or 'message' in result:
+                self._notifier.notify_entrust_failed("买入", security, price, amount,
+                                                    str(result.get('message', result)))
+        
         return result
 
     @perf_clock
@@ -233,8 +300,23 @@ class ClientTrader(IClientTrader):
         self._switch_left_menus(["卖出[F2]"])
 
         trade_logger.info("卖出 - 证券:%s 价格:%.2f 数量:%d", security, price, amount)
+        
+        # 发送委托通知
+        if self._notifier:
+            self._notifier.notify_trade("卖出", security, price, amount)
+        
         result = self.trade(security, price, amount)
         trade_logger.info("卖出结果 - 证券:%s 结果:%s", security, result)
+        
+        # 发送委托结果通知
+        if self._notifier:
+            if result.get('message') == 'success' or result.get('entrust_no'):
+                self._notifier.notify_entrust_success("卖出", security, price, amount,
+                                                     result.get('entrust_no'))
+            elif 'error' in str(result).lower() or 'message' in result:
+                self._notifier.notify_entrust_failed("卖出", security, price, amount,
+                                                    str(result.get('message', result)))
+        
         return result
 
     @perf_clock
@@ -253,8 +335,23 @@ class ClientTrader(IClientTrader):
         self._switch_left_menus(["市价委托", "买入"])
 
         trade_logger.info("市价买入 - 证券:%s 数量:%d 类型:%s", security, amount, ttype or "默认")
+        
+        # 发送委托通知
+        if self._notifier:
+            self._notifier.notify_trade("市价买入", security, 0, amount, f"类型:{ttype or '默认'}")
+        
         result = self.market_trade(security, amount, ttype, limit_price=limit_price)
         trade_logger.info("市价买入结果 - 证券:%s 结果:%s", security, result)
+        
+        # 发送委托结果通知
+        if self._notifier:
+            if result.get('message') == 'success' or result.get('entrust_no'):
+                self._notifier.notify_entrust_success("市价买入", security, 0, amount,
+                                                     result.get('entrust_no'))
+            elif 'error' in str(result).lower() or 'message' in result:
+                self._notifier.notify_entrust_failed("市价买入", security, 0, amount,
+                                                    str(result.get('message', result)))
+        
         return result
 
     @perf_clock
@@ -272,8 +369,23 @@ class ClientTrader(IClientTrader):
         self._switch_left_menus(["市价委托", "卖出"])
 
         trade_logger.info("市价卖出 - 证券:%s 数量:%d 类型:%s", security, amount, ttype or "默认")
+        
+        # 发送委托通知
+        if self._notifier:
+            self._notifier.notify_trade("市价卖出", security, 0, amount, f"类型:{ttype or '默认'}")
+        
         result = self.market_trade(security, amount, ttype, limit_price=limit_price)
         trade_logger.info("市价卖出结果 - 证券:%s 结果:%s", security, result)
+        
+        # 发送委托结果通知
+        if self._notifier:
+            if result.get('message') == 'success' or result.get('entrust_no'):
+                self._notifier.notify_entrust_success("市价卖出", security, 0, amount,
+                                                     result.get('entrust_no'))
+            elif 'error' in str(result).lower() or 'message' in result:
+                self._notifier.notify_entrust_failed("市价卖出", security, 0, amount,
+                                                    str(result.get('message', result)))
+        
         return result
 
     def market_trade(self, security, amount, ttype=None, limit_price=None, **kwargs):
@@ -348,14 +460,21 @@ class ClientTrader(IClientTrader):
 
         if len(stock_list) == 0:
             trade_logger.info("新股申购 - 今日无新股")
-            return {"message": "今日无新股"}
+            msg = "今日无新股"
+            if self._notifier:
+                self._notifier.notify_auto_ipo(msg)
+            return {"message": msg}
+            
         invalid_list_idx = [
             i for i, v in enumerate(stock_list) if v[self.config.AUTO_IPO_NUMBER] <= 0
         ]
 
         if len(stock_list) == len(invalid_list_idx):
             trade_logger.info("新股申购 - 没有可申购的新股")
-            return {"message": "没有发现可以申购的新股"}
+            msg = "没有发现可以申购的新股"
+            if self._notifier:
+                self._notifier.notify_auto_ipo(msg)
+            return {"message": msg}
 
         trade_logger.info("新股申购 - 共%d只新股，可申购%d只", len(stock_list), len(stock_list) - len(invalid_list_idx))
         
@@ -371,6 +490,12 @@ class ClientTrader(IClientTrader):
 
         result = self._handle_pop_dialogs()
         trade_logger.info("新股申购结果: %s", result)
+        
+        # 发送申购结果通知
+        if self._notifier:
+            result_msg = f"共{len(stock_list)}只新股，可申购{len(stock_list) - len(invalid_list_idx)}只\n结果: {result}"
+            self._notifier.notify_auto_ipo(result_msg)
+        
         return result
 
     def _click_grid_by_row(self, row):

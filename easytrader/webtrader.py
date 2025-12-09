@@ -13,6 +13,7 @@ from easytrader import exceptions
 from easytrader.log import logger, trade_logger
 from easytrader.utils.misc import file2dict, str2num
 from easytrader.utils.stock import get_30_date
+from easytrader.notifier import get_notifier
 
 
 # noinspection PyIncorrectDocstring
@@ -29,6 +30,7 @@ class WebTrader(metaclass=abc.ABCMeta):
         self.heart_thread.setDaemon(True)
 
         self.log_level = logging.DEBUG if debug else logging.INFO
+        self._notifier = get_notifier()
 
     def read_config(self, path):
         try:

@@ -4,9 +4,10 @@ from xtquant import xtconstant
 import random
 import time
 import threading
-from easytrader.log import logger
+from easytrader.log import logger, trade_logger
 from easytrader.utils.perf import perf_clock
 from easytrader.utils.stock import get_stock_type
+from easytrader.notifier import get_notifier
 
 # 市价委托类型映射
 MARKET_ORDER_TYPE_NAME_MAP = {
@@ -224,6 +225,7 @@ class MiniqmtTrader:
         self._reconnect_count: int = 0
         self._is_reconnecting: bool = False
         self._reconnect_lock = threading.Lock()
+        self._notifier = get_notifier()
 
     def prepare(self, **json_data):
         """
@@ -625,7 +627,24 @@ class MiniqmtTrader:
             例如非交易时间下单可以拿到订单编号，但 on_order_error 回调会报错：
             下单失败回调: order_id=10231, error_id=-61, error_msg=限价买入 [SZ162411] [COUNTER] [12313][当前时间不允许此类证券交易]
         """
-        return self.trade(security, price, amount, is_buy=True)
+        trade_logger.info("买入 - 证券:%s 价格:%.2f 数量:%d", security, price, amount)
+        
+        # 发送委托通知
+        if self._notifier:
+            self._notifier.notify_trade("买入", security, price, amount)
+        
+        result = self.trade(security, price, amount, is_buy=True)
+        trade_logger.info("买入结果 - 证券:%s 结果:%s", security, result)
+        
+        # 发送委托结果通知
+        if self._notifier:
+            entrust_no = result.get('entrust_no')
+            if entrust_no and entrust_no > 0:
+                self._notifier.notify_entrust_success("买入", security, price, amount, str(entrust_no))
+            elif entrust_no == -1:
+                self._notifier.notify_entrust_failed("买入", security, price, amount, "委托失败")
+        
+        return result
 
     @perf_clock
     def sell(self, security, price, amount, **kwargs):
@@ -642,8 +661,24 @@ class MiniqmtTrader:
             例如非交易时间下单可以拿到订单编号，但 on_order_error 回调会报错：
             下单失败回调: order_id=10231, error_id=-61, error_msg=限价买入 [SZ162411] [COUNTER] [12313][当前时间不允许此类证券交易]
         """
-
-        return self.trade(security, price, amount, is_buy=False)
+        trade_logger.info("卖出 - 证券:%s 价格:%.2f 数量:%d", security, price, amount)
+        
+        # 发送委托通知
+        if self._notifier:
+            self._notifier.notify_trade("卖出", security, price, amount)
+        
+        result = self.trade(security, price, amount, is_buy=False)
+        trade_logger.info("卖出结果 - 证券:%s 结果:%s", security, result)
+        
+        # 发送委托结果通知
+        if self._notifier:
+            entrust_no = result.get('entrust_no')
+            if entrust_no and entrust_no > 0:
+                self._notifier.notify_entrust_success("卖出", security, price, amount, str(entrust_no))
+            elif entrust_no == -1:
+                self._notifier.notify_entrust_failed("卖出", security, price, amount, "委托失败")
+        
+        return result
 
     def trade(self, security: str, price: float, amount: int, *, is_buy: bool) -> int:
         """
@@ -706,8 +741,24 @@ class MiniqmtTrader:
             例如非交易时间下单可以拿到订单编号，但 on_order_error 回调会报错：
             下单失败回调: order_id=10231, error_id=-61, error_msg=限价买入 [SZ162411] [COUNTER] [12313][当前时间不允许此类证券交易]
         """
-
-        return self.market_trade(security, amount, ttype, is_buy=True)
+        trade_logger.info("市价买入 - 证券:%s 数量:%d 类型:%s", security, amount, ttype or "默认")
+        
+        # 发送委托通知
+        if self._notifier:
+            self._notifier.notify_trade("市价买入", security, 0, amount, f"类型:{ttype or '默认'}")
+        
+        result = self.market_trade(security, amount, ttype, is_buy=True)
+        trade_logger.info("市价买入结果 - 证券:%s 结果:%s", security, result)
+        
+        # 发送委托结果通知
+        if self._notifier:
+            entrust_no = result.get('entrust_no')
+            if entrust_no and entrust_no > 0:
+                self._notifier.notify_entrust_success("市价买入", security, 0, amount, str(entrust_no))
+            elif entrust_no == -1:
+                self._notifier.notify_entrust_failed("市价买入", security, 0, amount, "委托失败")
+        
+        return result
 
     @perf_clock
     def market_sell(self, security, amount, ttype=None):
@@ -735,8 +786,24 @@ class MiniqmtTrader:
             例如非交易时间下单可以拿到订单编号，但 on_order_error 回调会报错：
             下单失败回调: order_id=10231, error_id=-61, error_msg=限价买入 [SZ162411] [COUNTER] [12313][当前时间不允许此类证券交易]
         """
-
-        return self.market_trade(security, amount, ttype, is_buy=False)
+        trade_logger.info("市价卖出 - 证券:%s 数量:%d 类型:%s", security, amount, ttype or "默认")
+        
+        # 发送委托通知
+        if self._notifier:
+            self._notifier.notify_trade("市价卖出", security, 0, amount, f"类型:{ttype or '默认'}")
+        
+        result = self.market_trade(security, amount, ttype, is_buy=False)
+        trade_logger.info("市价卖出结果 - 证券:%s 结果:%s", security, result)
+        
+        # 发送委托结果通知
+        if self._notifier:
+            entrust_no = result.get('entrust_no')
+            if entrust_no and entrust_no > 0:
+                self._notifier.notify_entrust_success("市价卖出", security, 0, amount, str(entrust_no))
+            elif entrust_no == -1:
+                self._notifier.notify_entrust_failed("市价卖出", security, 0, amount, "委托失败")
+        
+        return result
 
     def market_trade(self, security: str, amount: int, ttype: str = None, *, is_buy: bool):
         """
@@ -804,11 +871,19 @@ class MiniqmtTrader:
                  True: 成功发出撤单指令，False: 撤单失败
         """
         self._check_connected()
+        trade_logger.info("撤单 - 委托单号:%s", entrust_no)
+        
         result = self._trader.cancel_order_stock(self._account, entrust_no)
         # 根据官方文档，0表示成功，-1表示失败
         if result == 0:
+            trade_logger.info("撤单成功 - 委托单号:%s", entrust_no)
+            if self._notifier:
+                self._notifier.notify_cancel(str(entrust_no), "成功")
             return {'success': True, 'message': 'success'}
         else:
+            trade_logger.error("撤单失败 - 委托单号:%s", entrust_no)
+            if self._notifier:
+                self._notifier.notify_cancel(str(entrust_no), "失败")
             return {'success': False, 'message': 'failed'}
 
     def _get_stock_code(self, security: str) -> str:

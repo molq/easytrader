@@ -40,7 +40,7 @@ FOLLOW_CONFIG = {
     'strategies': ["ZH3381319"],      # 跟随的雪球组合
     'initial_assets': 100000,          # 初始资金
     'track_interval': 2,              # 轮询间隔（秒）
-    'trade_cmd_expire_seconds': 120,   # 交易指令过期时间（秒）
+    'trade_cmd_expire_seconds': 12000000,   # 交易指令过期时间（秒）
     'cmd_cache': True,                 # 是否缓存已执行指令
     'slippage': 0.0,                   # 滑点设置
 }
