@@ -610,7 +610,7 @@ class MiniqmtTrader:
         return trades
 
     @perf_clock
-    def buy(self, security: str, price: float, amount: int):
+    def buy(self, security: str, price: float, amount: int, **kwargs):
         """
         限价买入
         qmt 官方文档： https://dict.thinktrader.net/nativeApi/xttrader.html?id=7zqjlm#%E8%82%A1%E7%A5%A8%E5%90%8C%E6%AD%A5%E6%8A%A5%E5%8D%95
@@ -618,6 +618,7 @@ class MiniqmtTrader:
         :param security: 六位证券代码
         :param price: 交易价格
         :param amount: 交易数量
+        :param kwargs: 其他参数（如 entrust_prop），为了兼容性保留但不使用
         :return: {'entrust_no': '订单编号'}
             系统生成的订单编号，成功发送委托后的订单编号为大于0的正整数，如果为-1表示委托失败
             注：有订单编号不一定表示成功，具体成功与否需要查看下单回调 on_order_error。
@@ -813,7 +814,13 @@ class MiniqmtTrader:
     def _get_stock_code(self, security: str) -> str:
         """
         获取股票代码
-        :param security: 六位证券代码
-        :return: 格式化的股票代码
+        :param security: 六位证券代码，或带市场前缀的代码（如 sz300726 或 300726）
+        :return: 格式化的股票代码（如 300726.SZ）
         """
-        return f'{security}.{get_stock_type(security).upper()}'
+        # 如果股票代码以市场前缀开头（sh/sz/bj），去掉前缀只保留6位数字
+        if security.startswith(('sh', 'sz', 'bj')):
+            security = security[2:]
+        
+        # 根据6位代码确定市场类型，然后拼接成 QMT 格式
+        market_type = get_stock_type(security).upper()
+        return f'{security}.{market_type}'
